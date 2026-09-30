@@ -1,0 +1,41 @@
+---
+# Event-Driven Ansible rulebook for the rulebook activation
+# "mbredeme - CIS Drift Enforcement".
+#
+# Auditbeat's file_integrity module on each demo host sends file changes to the
+# Kafka topic "auditbeat". When the SSH server configuration changes on a CIS
+# demo host, this rulebook starts the workflow that re-applies the CIS SSH
+# rules to that one host and rescans it.
+#
+# group_id is unique to this activation. Kafka delivers every event once per
+# consumer group, so the existing "Kafka Auditbeat" activation keeps receiving
+# all of its events.
+- name: Enforce CIS SSH settings when the SSH configuration changes
+  hosts: all
+  sources:
+    - name: Auditbeat file integrity events from Kafka
+      ansible.eda.kafka:
+        host: kafka.shadowman.dev
+        port: 9092
+        topic: auditbeat
+        group_id: mbredeme-cis-drift
+        offset: latest
+
+  rules:
+    - name: SSH server configuration changed on a CIS demo host
+      condition: >-
+        event.body.file.path is match("/etc/ssh/sshd_config", ignorecase=true)
+        and event.body.host.hostname is match("cisdemo", ignorecase=true)
+      throttle:
+        once_within: 2 minutes
+        group_by_attributes:
+          - event.body.host.hostname
+      action:
+        run_workflow_template:
+          name: "mbredeme - CIS Enforce Drift"
+          organization: "mbredeme - Default"
+          job_args:
+            limit: "{{ event.body.host.hostname }}*"
+            extra_vars:
+              cis_drift_host: "{{ event.body.host.hostname }}"
+              cis_drift_file: "{{ event.body.file.path }}"

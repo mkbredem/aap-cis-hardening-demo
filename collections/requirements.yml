@@ -1,0 +1,5 @@
+---
+# Collections the RedHatOfficial CIS role and these playbooks call.
+collections:
+  - name: ansible.posix
+  - name: community.general

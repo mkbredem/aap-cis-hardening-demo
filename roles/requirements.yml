@@ -1,0 +1,9 @@
+---
+# CIS content: Red Hat's role generated from ComplianceAsCode, the same
+# rule source as the OpenSCAP "cis_server_l1" profile used by cis_scan.yml.
+# Pinned to a tag so a rerun next month applies the same rules.
+roles:
+  - name: RedHatOfficial.rhel9_cis_server_l1
+    src: https://github.com/RedHatOfficial/ansible-role-rhel9-cis_server_l1.git
+    scm: git
+    version: "0.1.82"

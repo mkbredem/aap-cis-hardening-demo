@@ -1,0 +1,95 @@
+---
+# Scans hosts with OpenSCAP against the CIS Level 1 - Server profile and
+# publishes the HTML report to the report web server.
+#
+# Used by the AAP job template "mbredeme - CIS Scan (OpenSCAP)".
+# Survey variable cis_scan_phase names the report folder, for example
+# "before" or "after", so both reports stay side by side:
+#   http://report.shadowman.dev/openscap/<host>/cis-<phase>/
+#
+# The OpenSCAP profile and the RedHatOfficial role are generated from the same
+# ComplianceAsCode rules, so the score measures exactly what the role changes.
+- name: Scan RHEL 9 hosts against CIS Level 1 Server
+  hosts: cis_rhel9
+  become: true
+  gather_facts: false
+
+  vars:
+    cis_scan_phase: before
+    cis_scap_profile: xccdf_org.ssgproject.content_profile_cis_server_l1
+    cis_scap_datastream: /usr/share/xml/scap/ssg/content/ssg-rhel9-ds.xml
+    cis_report_host: "{{ groups['reports'] | first }}"
+    cis_report_url_base: "http://{{ cis_report_host }}/openscap"
+
+  tasks:
+    - name: Install the OpenSCAP scanner and the SCAP Security Guide content
+      ansible.builtin.dnf:
+        name:
+          - openscap-scanner
+          - scap-security-guide
+        state: present
+
+    - name: Run the OpenSCAP CIS scan
+      ansible.builtin.command:
+        argv:
+          - oscap
+          - xccdf
+          - eval
+          - --profile
+          - "{{ cis_scap_profile }}"
+          - --results
+          - /tmp/cis-results.xml
+          - --report
+          - /tmp/cis-report.html
+          - "{{ cis_scap_datastream }}"
+      register: cis_oscap
+      # oscap returns 0 when every rule passes and 2 when at least one rule fails.
+      # Both are a completed scan. Any other return code is a scanner error.
+      failed_when: cis_oscap.rc not in [0, 2]
+      changed_when: false
+
+    - name: Read the scan results
+      ansible.builtin.slurp:
+        src: /tmp/cis-results.xml
+      register: cis_results_raw
+
+    - name: Calculate the score and the pass and fail counts
+      ansible.builtin.set_fact:
+        cis_score: >-
+          {{ (cis_results_raw.content | b64decode)
+             | regex_search('<score[^>]*>([0-9.]+)</score>', '\1') | first | float | round(1) }}
+        cis_pass_count: "{{ (cis_results_raw.content | b64decode) | regex_findall('<result>pass</result>') | length }}"
+        cis_fail_count: "{{ (cis_results_raw.content | b64decode) | regex_findall('<result>fail</result>') | length }}"
+
+    - name: Copy the HTML report into the execution environment
+      ansible.builtin.fetch:
+        src: /tmp/cis-report.html
+        dest: "/tmp/cis-reports/{{ inventory_hostname }}/index.html"
+        flat: true
+
+    - name: Create the report folder on the report web server
+      ansible.builtin.file:
+        path: "{{ hostvars[cis_report_host]['cis_report_root'] }}/{{ inventory_hostname }}/cis-{{ cis_scan_phase }}"
+        state: directory
+        mode: "0755"
+      delegate_to: "{{ cis_report_host }}"
+
+    - name: Publish the HTML report on the report web server
+      ansible.builtin.copy:
+        src: "/tmp/cis-reports/{{ inventory_hostname }}/index.html"
+        dest: "{{ hostvars[cis_report_host]['cis_report_root'] }}/{{ inventory_hostname }}/cis-{{ cis_scan_phase }}/index.html"
+        mode: "0644"
+      delegate_to: "{{ cis_report_host }}"
+
+    - name: Show the score and the report link
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} CIS Level 1 Server score {{ cis_score }}%
+          ({{ cis_pass_count }} rules pass, {{ cis_fail_count }} fail).
+          Report: {{ cis_report_url_base }}/{{ inventory_hostname }}/cis-{{ cis_scan_phase }}/
+
+    - name: Record the score as a job artifact for the workflow
+      ansible.builtin.set_stats:
+        data:
+          cis_scores: "{{ {inventory_hostname: {'phase': cis_scan_phase, 'score': cis_score, 'pass': cis_pass_count | int, 'fail': cis_fail_count | int, 'report': cis_report_url_base ~ '/' ~ inventory_hostname ~ '/cis-' ~ cis_scan_phase ~ '/'}} }}"
+        aggregate: true

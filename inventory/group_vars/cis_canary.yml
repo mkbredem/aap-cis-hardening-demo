@@ -1,0 +1,4 @@
+---
+# Canary ring. Hardened first, then checked by a rescan before the
+# workflow asks for approval to continue to cis_wave1.
+cis_ring: canary

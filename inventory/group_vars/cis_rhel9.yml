@@ -1,0 +1,34 @@
+---
+# ---------------------------------------------------------------------------
+# CIS tailoring for every RHEL 9 server in scope.
+#
+# The RedHatOfficial role turns every CIS Level 1 Server rule on by default.
+# Each rule has a variable of the same name. Setting it to false here is an
+# approved exception. Every exception records: the CIS control, the reason,
+# the compensating control, and the change ticket that approved it.
+# Changing this file in Git is the only way to add or remove an exception,
+# so the Git history is the audit trail.
+#
+# Ticket numbers below are examples for the demo.
+# ---------------------------------------------------------------------------
+
+# --- Exceptions -------------------------------------------------------------
+
+# CIS 6.1.1 / 6.1.2 - Ensure AIDE is installed and filesystem integrity is regularly checked.
+# Reason: file integrity monitoring is already provided by Auditbeat
+#         (file_integrity module), which sends changes to the SIEM and to
+#         Event-Driven Ansible.
+# Compensating control: Auditbeat file_integrity on /etc, /usr/bin, /usr/sbin.
+# Approved: CHG0041001 (example)
+package_aide_installed: false
+aide_build_database: false
+aide_periodic_cron_checking: false
+
+# --- Organization values for rules that take a parameter -------------------
+
+# CIS 5.1.9 - SSH ClientAliveInterval / ClientAliveCountMax (idle sessions close after 5 minutes).
+sshd_idle_timeout_value: "300"
+var_sshd_set_keepalive: "1"
+
+# CIS 5.4.3.2 - Shell sessions time out after 15 minutes.
+var_accounts_tmout: "900"

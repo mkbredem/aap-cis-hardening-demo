@@ -1,0 +1,30 @@
+---
+# Applies the CIS Red Hat Enterprise Linux 9 Benchmark v2.0.0, Level 1 - Server.
+#
+# Used by two AAP job templates:
+#   "mbredeme - CIS Check (Check Mode)"  job type Check: reports what would change
+#   "mbredeme - CIS Remediate"           job type Run:   makes the changes
+#
+# Scope a run with the job template's Limit (a ring such as cis_canary) and
+# Job Tags (one CIS section, for example the SSH rule names in README.md).
+# Exceptions come from inventory/group_vars, not from this playbook.
+- name: Apply CIS RHEL 9 Level 1 Server
+  hosts: cis_rhel9
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Confirm the host is RHEL 9 before applying RHEL 9 CIS content
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'RedHat'
+          - ansible_facts['distribution_major_version'] == '9'
+        fail_msg: >-
+          {{ inventory_hostname }} runs {{ ansible_facts['distribution'] }}
+          {{ ansible_facts['distribution_version'] }}. This playbook applies the
+          RHEL 9 CIS benchmark only.
+        quiet: true
+      tags: always
+
+  roles:
+    - role: RedHatOfficial.rhel9_cis_server_l1
