@@ -1,0 +1,24 @@
+---
+# Source variables for the AAP constructed inventory "mbredeme - CIS Demo".
+#   Input inventory: Shadowman Production (VMware, Satellite and other sources)
+#   Limit:           cisdemo*
+#
+# CIS scope and rollout rings come from data the VMware source already has,
+# so no host list is kept by hand:
+#   os                           rhel9_64Guest for RHEL 9 guests
+#   tag_category.environment     the vCenter "environment" tag, set from the
+#                                env survey answer when the VM is built
+#
+# Group variables for these groups (CIS exceptions and ring settings) live in
+# group_vars/ at the root of this repository, next to the playbooks.
+plugin: constructed
+strict: false
+groups:
+  cis_rhel9: >-
+    (os | default('')) is search('rhel9')
+  cis_canary: >-
+    (os | default('')) is search('rhel9')
+    and 'dev' in (tag_category.environment | default([]))
+  cis_wave1: >-
+    (os | default('')) is search('rhel9')
+    and 'test' in (tag_category.environment | default([]))

@@ -1,4 +1,0 @@
----
-# Web server that publishes the OpenSCAP HTML reports.
-# Reports are served at http://report.shadowman.dev/openscap/<host>/cis-<phase>/
-cis_report_root: /var/www/html/openscap

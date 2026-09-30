@@ -7,7 +7,7 @@
 #
 # Scope a run with the job template's Limit (a ring such as cis_canary) and
 # Job Tags (one CIS section, for example the SSH rule names in README.md).
-# Exceptions come from inventory/group_vars, not from this playbook.
+# Exceptions come from group_vars/ in this repository, not from this playbook.
 - name: Apply CIS RHEL 9 Level 1 Server
   hosts: cis_rhel9
   become: true
@@ -26,5 +26,35 @@
         quiet: true
       tags: always
 
+    # Drift suppression. The CIS role itself edits /etc/ssh/sshd_config, which
+    # Auditbeat reports like any other change. When the drift workflow was
+    # started by a change that automation made (a planned remediation within
+    # the last cis_suppress_seconds), skip the host instead of re-running.
+    - name: Read when the last planned CIS remediation ran on this host
+      ansible.builtin.stat:
+        path: /var/lib/cis-automation/last_remediation
+      register: cis_last_run
+      when: cis_triggered_by_drift | default(false) | bool
+      tags: always
+
+    - name: Skip this host if the change came from a planned remediation
+      ansible.builtin.meta: end_host
+      when:
+        - cis_triggered_by_drift | default(false) | bool
+        - cis_last_run.stat.exists | default(false)
+        - (now(utc=true).timestamp() - cis_last_run.stat.mtime) < (cis_suppress_seconds | default(180) | int)
+      tags: always
+
+    - name: Record the start of a planned remediation
+      ansible.builtin.include_tasks: tasks/record_remediation.yml
+      when: not ansible_check_mode
+      tags: always
+
   roles:
     - role: RedHatOfficial.rhel9_cis_server_l1
+
+  post_tasks:
+    - name: Record the end of a planned remediation
+      ansible.builtin.include_tasks: tasks/record_remediation.yml
+      when: not ansible_check_mode
+      tags: always

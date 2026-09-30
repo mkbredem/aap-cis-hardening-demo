@@ -1,0 +1,17 @@
+---
+# Updates the time stamp that cis_harden.yml reads for drift suppression.
+- name: Create the CIS automation state folder
+  ansible.builtin.file:
+    path: /var/lib/cis-automation
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Update the last remediation time stamp
+  ansible.builtin.file:
+    path: /var/lib/cis-automation/last_remediation
+    state: touch
+    owner: root
+    group: root
+    mode: "0600"

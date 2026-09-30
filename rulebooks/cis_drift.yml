@@ -37,5 +37,6 @@
           job_args:
             limit: "{{ event.body.host.hostname }}*"
             extra_vars:
+              cis_triggered_by_drift: true
               cis_drift_host: "{{ event.body.host.hostname }}"
               cis_drift_file: "{{ event.body.file.path }}"

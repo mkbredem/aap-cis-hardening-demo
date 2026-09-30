@@ -1,0 +1,67 @@
+---
+# Demo setup only. Brings freshly built demo VMs to a known starting state:
+#   - hostname set to the inventory name
+#   - OpenSCAP scanner and SCAP Security Guide content installed
+#   - Auditbeat installed, watching /etc/ssh, sending file changes to Kafka
+#
+# Used by the AAP job template "mbredeme - CIS Demo Prep VMs", which runs after
+# the VM build in the workflow "mbredeme - CIS Demo Build Lab".
+# The Auditbeat download and Kafka settings match the shadowman lab's existing
+# auditbeat role (shadowman-lab/Ansible-Labextra).
+- name: Prepare CIS demo VMs
+  hosts: cis_rhel9
+  become: true
+  gather_facts: true
+
+  vars:
+    auditbeat_version: "8.17.1"
+    auditbeat_rpm_url: "https://artifacts.elastic.co/downloads/beats/auditbeat/auditbeat-{{ auditbeat_version }}-x86_64.rpm"
+    auditbeat_kafka_host: "kafka.shadowman.dev:9092"
+    auditbeat_kafka_topic: auditbeat
+
+  tasks:
+    # Auditbeat reports the operating system hostname, and the drift rulebook
+    # matches on it. New VMs can come up as localhost.localdomain.
+    - name: Set the hostname to the inventory name
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Install the OpenSCAP scanner and the SCAP Security Guide content
+      ansible.builtin.dnf:
+        name:
+          - openscap-scanner
+          - scap-security-guide
+        state: present
+
+    - name: Download the Auditbeat package
+      ansible.builtin.get_url:
+        url: "{{ auditbeat_rpm_url }}"
+        dest: /tmp/auditbeat.rpm
+        mode: "0440"
+
+    - name: Install Auditbeat
+      ansible.builtin.dnf:
+        name: /tmp/auditbeat.rpm
+        state: present
+        disable_gpg_check: true
+
+    - name: Configure Auditbeat to watch the SSH server configuration
+      ansible.builtin.template:
+        src: templates/auditbeat-cis.yml.j2
+        dest: /etc/auditbeat/auditbeat.yml
+        owner: root
+        group: root
+        mode: "0600"
+      notify: Restart Auditbeat
+
+    - name: Start Auditbeat now and at boot
+      ansible.builtin.service:
+        name: auditbeat
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Restart Auditbeat
+      ansible.builtin.service:
+        name: auditbeat
+        state: restarted

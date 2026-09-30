@@ -1,0 +1,4 @@
+---
+# Wave 1 ring: RHEL 9 hosts whose VMware "environment" tag is test.
+# Hardened only after the canary rescan is approved.
+cis_ring: wave1

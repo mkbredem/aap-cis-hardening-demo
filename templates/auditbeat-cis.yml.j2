@@ -1,0 +1,30 @@
+# Managed by Ansible: cis_demo_prep.yml in mkbredem/aap-cis-hardening-demo
+# Sends a file_integrity event to Kafka when the SSH server configuration changes.
+# The rulebook rulebooks/cis_drift.yml listens for these events.
+
+auditbeat.modules:
+- module: file_integrity
+  paths:
+  - /etc/ssh
+  include_files:
+  - '^/etc/ssh/sshd_config$'
+  - '^/etc/ssh/sshd_config\.d/.*\.conf$'
+  exclude_files:
+  - '(?i)\.sw[nop]$'
+  - '~$'
+  # No events at startup: only real changes after Auditbeat starts are sent.
+  scan_at_start: false
+  hash_types: [sha1]
+  recursive: true
+
+output.kafka:
+  enabled: true
+  hosts: ["{{ auditbeat_kafka_host }}"]
+  topic: "{{ auditbeat_kafka_topic }}"
+  partition.round_robin:
+    reachable_only: false
+  required_acks: 1
+  compression: gzip
+
+processors:
+  - add_host_metadata: ~

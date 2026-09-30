@@ -1,0 +1,6 @@
+---
+# Canary ring: RHEL 9 hosts whose VMware "environment" tag is dev.
+# The constructed inventory "mbredeme - CIS Demo" builds this group
+# (see docs/constructed_inventory.yml). Hardened first, then rescanned
+# before the workflow asks for approval to continue to cis_wave1.
+cis_ring: canary
