@@ -1,0 +1,98 @@
+---
+# Demo setup only. Manages one fixed VMware snapshot, "cis-baseline", on the
+# CIS demo VMs, so the lab can be reset to its unhardened starting state.
+#
+#   cis_snapshot_action: create   take the snapshot (end of "mbredeme - CIS Demo Build Lab")
+#   cis_snapshot_action: revert   power off, revert, power on, wait for SSH
+#                                 (start of "mbredeme - CIS Demo Reset Lab")
+#   cis_snapshot_action: delete   remove the snapshot (teardown after the event)
+#
+# The shared lab snapshot templates name snapshots after the current date, so a
+# restore on a later day cannot find them. This playbook uses the same
+# vmware.vmware and vmware.vmware_rest modules with a fixed name.
+# vCenter connection details come from the "VMWare VCenter Env Cred" credential.
+# path and shadowman_provision_hypervisor come from the VMware inventory source.
+- name: Manage the cis-baseline snapshot on the CIS demo VMs
+  hosts: cis_rhel9
+  gather_facts: false
+
+  vars:
+    cis_snapshot_action: create
+    cis_snapshot_name: cis-baseline
+    cis_snapshot_datacenter: Shadowman-DC
+    cis_vm_folder: "{{ path | regex_replace('^Datacenters/', '') }}"
+
+  tasks:
+    - name: Confirm the action and that the VM is on VMware
+      ansible.builtin.assert:
+        that:
+          - cis_snapshot_action in ['create', 'revert', 'delete']
+          - shadowman_provision_hypervisor | default('') == 'VMWare'
+        fail_msg: >-
+          cis_snapshot_action must be create, revert or delete, and
+          {{ inventory_hostname }} must be a VMware VM
+          (found {{ shadowman_provision_hypervisor | default('no hypervisor variable') }}).
+        quiet: true
+
+    - name: Remove an existing cis-baseline snapshot before taking a new one
+      vmware.vmware.vm_snapshot:
+        datacenter: "{{ cis_snapshot_datacenter }}"
+        name: "{{ inventory_hostname }}"
+        folder: "{{ cis_vm_folder }}"
+        snapshot_name: "{{ cis_snapshot_name }}"
+        state: absent
+        validate_certs: false
+      delegate_to: localhost
+      when: cis_snapshot_action in ['create', 'delete']
+
+    - name: Take the cis-baseline snapshot
+      vmware.vmware.vm_snapshot:
+        datacenter: "{{ cis_snapshot_datacenter }}"
+        name: "{{ inventory_hostname }}"
+        folder: "{{ cis_vm_folder }}"
+        snapshot_name: "{{ cis_snapshot_name }}"
+        description: "CIS demo baseline: built and prepared, not hardened"
+        state: present
+        validate_certs: false
+      delegate_to: localhost
+      when: cis_snapshot_action == 'create'
+
+    - name: Revert to the cis-baseline snapshot and start the VM
+      when: cis_snapshot_action == 'revert'
+      block:
+        - name: Look up the VM in vCenter
+          vmware.vmware_rest.vcenter_vm_info:
+            filter_names:
+              - "{{ inventory_hostname }}"
+            vcenter_validate_certs: false
+          register: cis_vm_info
+          delegate_to: localhost
+
+        - name: Power off the VM
+          vmware.vmware_rest.vcenter_vm_power:
+            state: stop
+            vm: "{{ cis_vm_info.value[0].vm }}"
+            vcenter_validate_certs: false
+          delegate_to: localhost
+          failed_when: false
+
+        - name: Revert to cis-baseline
+          vmware.vmware.vm_snapshot_revert:
+            datacenter: "{{ cis_snapshot_datacenter }}"
+            name: "{{ inventory_hostname }}"
+            folder: "{{ cis_vm_folder }}"
+            snapshot_name: "{{ cis_snapshot_name }}"
+            validate_certs: false
+          delegate_to: localhost
+
+        - name: Power on the VM
+          vmware.vmware_rest.vcenter_vm_power:
+            state: start
+            vm: "{{ cis_vm_info.value[0].vm }}"
+            vcenter_validate_certs: false
+          delegate_to: localhost
+
+        - name: Wait until the VM accepts SSH again
+          ansible.builtin.wait_for_connection:
+            delay: 15
+            timeout: 600
