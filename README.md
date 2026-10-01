@@ -23,6 +23,7 @@ Each CIS rule is switched on or off by a variable with the rule's name, for exam
 | `cis_scan.yml` | OpenSCAP scan, HTML report published to `report.shadowman.dev/openscap/<host>/cis-<phase>/`, score saved as a job artifact |
 | `cis_harden.yml` | Applies the CIS role. Run as job type Check to report, Run to change |
 | `cis_introduce_drift.yml` | Demo helper that sets `PermitRootLogin yes` |
+| `cis_lab_requester.yml` | Demo setup: publishes the launching AAP user's email as `owner` for the VM build |
 | `cis_demo_prep.yml` | Demo setup: installs OpenSCAP and Auditbeat (watching `/etc/ssh`, sending to Kafka) on new VMs |
 | `tasks/record_remediation.yml` | Time stamp used to ignore Auditbeat events caused by a planned remediation |
 | `group_vars/cis_rhel9.yml` | Approved exceptions and organization values, each with reason and change ticket |
@@ -42,7 +43,8 @@ Each CIS rule is switched on or off by a variable with the rule's name, for exam
 | mbredeme - CIS Check (Check Mode) | Job template, job type Check, diff on | `cis_harden.yml` |
 | mbredeme - CIS Remediate | Job template, diff on | `cis_harden.yml` |
 | mbredeme - CIS Demo Introduce Drift | Job template | `cis_introduce_drift.yml` |
-| mbredeme - CIS Demo Prep VMs | Job template | `cis_demo_prep.yml` |
+| mbredeme - CIS Demo Prep VMs | Job template | `cis_lab_requester.yml` | Demo setup: publishes the launching AAP user's email as `owner` for the VM build |
+| `cis_demo_prep.yml` |
 | mbredeme - CIS Demo Build Lab | Workflow | three parallel runs of Multi Hypervisor Create and Config VM (VMware, RHEL 9; cisdemo01 with env dev, cisdemo02 and cisdemo03 with env test), then Prep VMs, then Scan (before) |
 | mbredeme - CIS Harden RHEL | Workflow | scan, check, approve, canary, rescan, approve, wave 1, scan |
 | mbredeme - CIS Enforce Drift | Workflow | remediate and rescan one host |
