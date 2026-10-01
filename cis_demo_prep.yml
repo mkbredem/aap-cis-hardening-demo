@@ -8,6 +8,30 @@
 # the VM build in the workflow "mbredeme - CIS Demo Build Lab".
 # The Auditbeat download and Kafka settings match the shadowman lab's existing
 # auditbeat role (shadowman-lab/Ansible-Labextra).
+
+# The shared VM build workflow reports success even when provisioning fails
+# (its failure path updates ServiceNow and ends green), so check here that
+# every expected demo VM made it into the inventory before going further.
+- name: Check that all demo VMs were built
+  hosts: cis_rhel9
+  gather_facts: false
+  vars:
+    cis_demo_expected_hosts:
+      - cisdemo01.shadowman.dev
+      - cisdemo02.shadowman.dev
+      - cisdemo03.shadowman.dev
+  tasks:
+    - name: Fail if a demo VM is missing from the inventory
+      run_once: true
+      ansible.builtin.assert:
+        that: missing | length == 0
+        fail_msg: >-
+          Missing from the inventory: {{ missing | join(', ') }}.
+          Check the "Provision VM Multi Platform" job in that VM's build.
+        quiet: true
+      vars:
+        missing: "{{ cis_demo_expected_hosts | difference(groups['cis_rhel9'] | default([])) }}"
+
 - name: Prepare CIS demo VMs
   hosts: cis_rhel9
   become: true
