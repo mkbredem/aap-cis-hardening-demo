@@ -50,6 +50,24 @@
       ansible.builtin.hostname:
         name: "{{ inventory_hostname }}"
 
+    # The automation account "ansible" gets passwordless sudo from an IdM sudo
+    # rule, which sudo reads through SSSD. CIS rule
+    # accounts_password_pam_modules_in_authselect_profile switches authselect
+    # to a custom profile first and turns the old profile's features (including
+    # with-sudo) back on in a later task, so for that moment sudo cannot see the
+    # IdM rule and the next task fails with "Missing sudo password". A local
+    # sudoers file keeps automation access independent of the directory.
+    # Passwordless sudo is allowed at CIS Level 1 (the rule against it,
+    # sudo_remove_nopasswd, is Level 2).
+    - name: Give the automation account local passwordless sudo
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/90-ansible-automation
+        content: "ansible ALL=(ALL) NOPASSWD: ALL\n"
+        owner: root
+        group: root
+        mode: "0440"
+        validate: /usr/sbin/visudo -cf %s
+
     - name: Install the OpenSCAP scanner and the SCAP Security Guide content
       ansible.builtin.dnf:
         name:
