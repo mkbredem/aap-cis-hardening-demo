@@ -45,6 +45,16 @@
       delegate_to: localhost
       when: cis_snapshot_action in ['create', 'delete']
 
+    # The snapshot is taken while the VM runs and holds only what is on disk.
+    # Linux can keep file writes in memory for about 30 seconds, so a snapshot
+    # taken right after prep can hold an empty or old auditbeat.yml. sync
+    # writes everything to disk first.
+    - name: Write pending file changes to disk before the snapshot
+      ansible.builtin.command: sync
+      become: true
+      changed_when: false
+      when: cis_snapshot_action == 'create'
+
     - name: Take the cis-baseline snapshot
       vmware.vmware.vm_snapshot:
         datacenter: "{{ cis_snapshot_datacenter }}"
@@ -96,3 +106,14 @@
           ansible.builtin.wait_for_connection:
             delay: 15
             timeout: 600
+
+        # Drift detection depends on Auditbeat. Fail the reset loudly if the
+        # restored VM comes up without it, rather than finding out on stage.
+        - name: Confirm Auditbeat is running after the revert
+          ansible.builtin.command: systemctl is-active auditbeat
+          become: true
+          changed_when: false
+          register: cis_auditbeat_state
+          retries: 6
+          delay: 10
+          until: cis_auditbeat_state.rc == 0

@@ -102,6 +102,17 @@
         state: started
         enabled: true
 
+    - name: Apply the Auditbeat configuration now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Confirm Auditbeat is running
+      ansible.builtin.command: systemctl is-active auditbeat
+      changed_when: false
+      register: cis_auditbeat_state
+      retries: 6
+      delay: 10
+      until: cis_auditbeat_state.rc == 0
+
   handlers:
     - name: Restart Auditbeat
       ansible.builtin.service:
