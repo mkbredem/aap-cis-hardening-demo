@@ -45,8 +45,13 @@
         - (now(utc=true).timestamp() - cis_last_run.stat.mtime) < (cis_suppress_seconds | default(180) | int)
       tags: always
 
+    # apply: tags: always passes the tag to the included tasks; without it,
+    # a run limited with Job Tags skips them and no time stamp is written.
     - name: Record the start of a planned remediation
-      ansible.builtin.include_tasks: tasks/record_remediation.yml
+      ansible.builtin.include_tasks:
+        file: tasks/record_remediation.yml
+        apply:
+          tags: always
       when: not ansible_check_mode
       tags: always
 
@@ -54,7 +59,12 @@
     - role: RedHatOfficial.rhel9_cis_server_l1
 
   post_tasks:
+    # apply: tags: always passes the tag to the included tasks; without it,
+    # a run limited with Job Tags skips them and no time stamp is written.
     - name: Record the end of a planned remediation
-      ansible.builtin.include_tasks: tasks/record_remediation.yml
+      ansible.builtin.include_tasks:
+        file: tasks/record_remediation.yml
+        apply:
+          tags: always
       when: not ansible_check_mode
       tags: always
