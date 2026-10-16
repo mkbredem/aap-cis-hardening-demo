@@ -9,7 +9,7 @@
 #
 # The shared lab snapshot templates name snapshots after the current date, so a
 # restore on a later day cannot find them. This playbook uses the same
-# vmware.vmware and vmware.vmware_rest modules with a fixed name.
+# vmware.vmware modules with a fixed name.
 # vCenter connection details come from the "VMWare VCenter Env Cred" credential.
 # path and shadowman_provision_hypervisor come from the VMware inventory source.
 - name: Manage the cis-baseline snapshot on the CIS demo VMs
@@ -70,21 +70,17 @@
     - name: Revert to the cis-baseline snapshot and start the VM
       when: cis_snapshot_action == 'revert'
       block:
-        - name: Look up the VM in vCenter
-          vmware.vmware_rest.vcenter_vm_info:
-            filter_names:
-              - "{{ inventory_hostname }}"
-            vcenter_validate_certs: false
-          register: cis_vm_info
-          delegate_to: localhost
-
+        # vmware.vmware_rest 5.0 removed vcenter_vm_power; vm_powerstate finds
+        # the VM by the same name, datacenter and folder as the snapshot tasks.
         - name: Power off the VM
-          vmware.vmware_rest.vcenter_vm_power:
-            state: stop
-            vm: "{{ cis_vm_info.value[0].vm }}"
-            vcenter_validate_certs: false
+          vmware.vmware.vm_powerstate:
+            datacenter: "{{ cis_snapshot_datacenter }}"
+            name: "{{ inventory_hostname }}"
+            folder: "{{ cis_vm_folder }}"
+            state: powered-off
+            force: true
+            validate_certs: false
           delegate_to: localhost
-          failed_when: false
 
         - name: Revert to cis-baseline
           vmware.vmware.vm_snapshot_revert:
@@ -96,10 +92,12 @@
           delegate_to: localhost
 
         - name: Power on the VM
-          vmware.vmware_rest.vcenter_vm_power:
-            state: start
-            vm: "{{ cis_vm_info.value[0].vm }}"
-            vcenter_validate_certs: false
+          vmware.vmware.vm_powerstate:
+            datacenter: "{{ cis_snapshot_datacenter }}"
+            name: "{{ inventory_hostname }}"
+            folder: "{{ cis_vm_folder }}"
+            state: powered-on
+            validate_certs: false
           delegate_to: localhost
 
         - name: Wait until the VM accepts SSH again
