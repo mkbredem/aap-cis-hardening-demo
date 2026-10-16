@@ -1,0 +1,52 @@
+---
+# Limits a run to the CIS sections picked in the workflow survey
+# ("CIS sections to apply", variable cis_sections).
+#
+# The RedHatOfficial role has one true/false variable per rule. This file
+# writes "false" for every rule outside the selected sections and loads it,
+# so those rules are skipped. Rules inside the selected sections keep their
+# value from group_vars/, so approved exceptions stay off.
+#
+# Demo convenience: in production the scope of a change is usually fixed in
+# the job template or pipeline that runs it, not picked by hand at launch.
+
+- name: Load the CIS section of every rule in the role
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/vars/cis_rule_sections.yml"
+
+# The survey value looks like "5.1 SSH server"; keep the section number.
+- name: Work out which CIS sections were selected
+  ansible.builtin.set_fact:
+    cis_selected_sections: >-
+      {{ (cis_sections.split('\n') if cis_sections is string else cis_sections)
+         | map('trim') | reject('equalto', '')
+         | map('split', ' ') | map('first') | list }}
+
+- name: Turn off the rules outside the selected sections
+  when: "'All' not in cis_selected_sections"
+  block:
+    # Written on the execution environment, not the managed host. Runs in
+    # check mode too, because the check-mode job needs the same scope.
+    - name: Write the rule switches for the sections that were not selected
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/cis_section_filter.yml.j2"
+        dest: "/tmp/cis-section-filter-{{ awx_job_id | default('local') }}.yml"
+        mode: "0600"
+      delegate_to: localhost
+      run_once: true
+      become: false
+      check_mode: false
+      changed_when: false
+
+    - name: Load the rule switches
+      ansible.builtin.include_vars:
+        file: "/tmp/cis-section-filter-{{ awx_job_id | default('local') }}.yml"
+
+    - name: Show the scope of this run
+      ansible.builtin.debug:
+        msg: >-
+          Applying CIS section(s) {{ cis_selected_sections | join(', ') }}:
+          {{ cis_rule_sections.values()
+             | map('intersect', cis_selected_sections)
+             | select | list | length }} rule switches in scope.
+      run_once: true

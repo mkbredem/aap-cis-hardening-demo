@@ -6,7 +6,8 @@
 #   "mbredeme - CIS Remediate"           job type Run:   makes the changes
 #
 # Scope a run with the job template's Limit (a ring such as cis_canary) and
-# Job Tags (one CIS section, for example the SSH rule names in README.md).
+# either the survey variable cis_sections (whole CIS sections, see
+# tasks/select_sections.yml) or Job Tags (single rule names).
 # Exceptions come from group_vars/ in this repository, not from this playbook.
 - name: Apply CIS RHEL 9 Level 1 Server
   hosts: cis_rhel9
@@ -24,6 +25,17 @@
           {{ ansible_facts['distribution_version'] }}. This playbook applies the
           RHEL 9 CIS benchmark only.
         quiet: true
+      tags: always
+
+    # Scope from the workflow survey "CIS sections to apply". Runs only when
+    # cis_sections is set, so the nightly check and the drift workflow,
+    # which do not set it, are unchanged.
+    - name: Limit the run to the CIS sections selected in the survey
+      ansible.builtin.include_tasks:
+        file: tasks/select_sections.yml
+        apply:
+          tags: always
+      when: cis_sections is defined
       tags: always
 
     # Drift suppression. The CIS role itself edits /etc/ssh/sshd_config, which
