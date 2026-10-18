@@ -14,7 +14,9 @@
   # template "Web Application Verification" uses. That template also starts
   # httpd, which would hide a failure, so this check only reads the page.
   vars:
-    cis_app_url: "https://{{ ansible_host | default(inventory_hostname) }}/index.html"
+    # The request runs on the execution environment (delegate_to: localhost),
+    # where ansible_host means localhost, so the URL uses the inventory name.
+    cis_app_url: "https://{{ inventory_hostname }}/index.html"
     cis_app_expected_text: "{{ inventory_hostname }}"
 
   tasks:
