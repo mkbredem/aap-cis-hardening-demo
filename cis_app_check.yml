@@ -1,0 +1,41 @@
+---
+# Application health check for the Shadowman web application. Runs after each remediation step in the workflow
+# "mbredeme - CIS Harden RHEL" (job template "mbredeme - CIS App Health Check").
+# The request is sent from the execution environment, not from the server, so
+# it also tests that the firewall still allows the application's port.
+# If any server in the limit does not return the page, this job fails and the
+# workflow stops before the next group of servers is changed.
+- name: Check that the web application still responds after hardening
+  hosts: cis_rhel9
+  gather_facts: false
+
+  # The Shadowman web application serves HTTPS with a lab certificate, and
+  # its index page contains the server name, the same test that the job
+  # template "Web Application Verification" uses. That template also starts
+  # httpd, which would hide a failure, so this check only reads the page.
+  vars:
+    cis_app_url: "https://{{ ansible_host | default(inventory_hostname) }}/index.html"
+    cis_app_expected_text: "{{ inventory_hostname }}"
+
+  tasks:
+    - name: Request the application page
+      ansible.builtin.uri:
+        url: "{{ cis_app_url }}"
+        return_content: true
+        use_proxy: false
+        validate_certs: false
+        timeout: 10
+        status_code: 200
+      delegate_to: localhost
+      register: cis_app_response
+      retries: 3
+      delay: 5
+      until: cis_app_response.status | default(0) == 200
+
+    - name: Confirm the page is the application page
+      ansible.builtin.assert:
+        that: cis_app_expected_text in cis_app_response.content
+        fail_msg: >-
+          {{ cis_app_url }} returned HTTP {{ cis_app_response.status }} but not
+          the application page. Check httpd and the firewall on {{ inventory_hostname }}.
+        success_msg: "{{ cis_app_url }} returned the application page."

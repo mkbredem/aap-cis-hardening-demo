@@ -24,6 +24,19 @@ package_aide_installed: false
 aide_build_database: false
 aide_periodic_cron_checking: false
 
+# CIS 2.1.18 - Ensure web server services are not in use.
+# Reason: these servers run the Shadowman web application (httpd with mod_ssl,
+#         deployed by the job template "Web Application Install and
+#         Verification Multi"). CIS applies this rule to servers that do not
+#         need a web server.
+# Compensating control: the job template "mbredeme - CIS App Health Check"
+#         requests the application page after every remediation step, and
+#         firewalld allows only HTTP, HTTPS and SSH from the network.
+# Approved: CHG0041002 (example)
+# In production, put this exception in the group_vars file of the web server
+# group only. Every server in this demo is a web server, so it is here.
+package_httpd_removed: false
+
 # --- Organization values for rules that take a parameter -------------------
 
 # CIS 5.1.9 - SSH ClientAliveInterval / ClientAliveCountMax (idle sessions close after 5 minutes).
