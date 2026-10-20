@@ -1,0 +1,203 @@
+---
+# Failure notice for the workflow "mbredeme - CIS Harden RHEL" (job template
+# "mbredeme - CIS Notify Failure"). Every job and approval node in that
+# workflow has this job on its failure path.
+#
+# The job reads the workflow job from the AAP API, finds the step that
+# failed, and posts to Mattermost Town Square: which step failed, what that
+# means for the servers, which hosts and tasks failed, and a link to the job
+# (or approval) to open. It then fails on purpose: AAP marks a workflow as
+# successful when a failure path handles a failed node, and the workflow job
+# must still show as failed in the jobs list.
+#
+# Credentials on the job template:
+#   - Red Hat Ansible Automation Platform credential: CONTROLLER_HOST,
+#     CONTROLLER_USERNAME, CONTROLLER_PASSWORD (read access to the workflow
+#     job is enough; in production use a dedicated read-only user)
+#   - Mattermost API Key credential: extra variable mattermost_api_key
+- name: Report the failed step of the CIS Harden RHEL workflow
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    mattermost_url: "https://cicd.shadowman.dev:8065"
+    cis_aap_host: "{{ lookup('ansible.builtin.env', 'CONTROLLER_HOST') | regex_replace('^https?://', '') | regex_replace('/+$', '') }}"
+    cis_aap_url: "https://{{ cis_aap_host }}"
+    cis_api: "{{ cis_aap_url }}/api/controller/v2"
+    cis_api_user: "{{ lookup('ansible.builtin.env', 'CONTROLLER_USERNAME') }}"
+    cis_api_password: "{{ lookup('ansible.builtin.env', 'CONTROLLER_PASSWORD') }}"
+    cis_api_verify: "{{ lookup('ansible.builtin.env', 'CONTROLLER_VERIFY_SSL') | default('true', true) | bool }}"
+    cis_workflow_id: "{{ awx_workflow_job_id | default(tower_workflow_job_id | default('')) }}"
+
+    # What a failure at each workflow node means. Keys are the node identifiers
+    # in the workflow "mbredeme - CIS Harden RHEL".
+    cis_steps:
+      scan-before:
+        label: "Scan before"
+        meaning: "The before scan did not finish. No server has been changed."
+      check-mode:
+        label: "Check mode"
+        meaning: "The check-mode preview did not finish. No server has been changed and no approval request was sent."
+      approve-canary:
+        label: "Approve canary ring"
+        meaning: "The canary approval was not given. No server has been changed."
+      remediate-canary:
+        label: "Remediate canary ring"
+        meaning: "Remediation failed on the canary ring. Wave 1 was not changed. Fix the failed task on the canary before you launch the workflow again."
+      app-check-canary:
+        label: "App check, canary ring"
+        meaning: "The canary ring was hardened, but the Shadowman web application did not return its page afterward. Wave 1 was not changed. Check httpd and the firewall on the canary server."
+      approve-wave1:
+        label: "Approve wave 1 ring"
+        meaning: "The wave 1 approval was not given. Only the canary ring has been changed."
+      remediate-wave1:
+        label: "Remediate wave 1 ring"
+        meaning: "Remediation failed on wave 1. The canary ring is hardened; the after scan did not run."
+      app-check-wave1:
+        label: "App check, wave 1 ring"
+        meaning: "Wave 1 was hardened, but the Shadowman web application did not return its page afterward. The after scan did not run. Check httpd and the firewall on the wave 1 servers."
+      scan-after:
+        label: "Scan after"
+        meaning: "The servers were changed, but the after scan did not finish, so this run has no after report. Run mbredeme - CIS Scan (OpenSCAP) with cis_scan_phase=after."
+
+  tasks:
+    - name: Read the workflow job
+      ansible.builtin.uri:
+        url: "{{ cis_api }}/workflow_jobs/{{ cis_workflow_id }}/"
+        url_username: "{{ cis_api_user }}"
+        url_password: "{{ cis_api_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ cis_api_verify }}"
+      register: cis_wf
+
+    - name: Read the workflow nodes
+      ansible.builtin.uri:
+        url: "{{ cis_api }}/workflow_jobs/{{ cis_workflow_id }}/workflow_nodes/?page_size=100"
+        url_username: "{{ cis_api_user }}"
+        url_password: "{{ cis_api_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ cis_api_verify }}"
+      register: cis_nodes
+
+    - name: Find the step that failed
+      ansible.builtin.set_fact:
+        cis_failed: >-
+          {{ cis_nodes.json.results
+             | selectattr('summary_fields.job', 'defined')
+             | selectattr('identifier', 'in', cis_steps.keys() | list)
+             | selectattr('summary_fields.job.status', 'in', ['failed', 'error', 'canceled'])
+             | list | first | default({}) }}
+
+    - name: Read the failed job
+      when:
+        - cis_failed.summary_fields is defined
+        - cis_failed.summary_fields.job.type == 'job'
+      block:
+        - name: Read the job record
+          ansible.builtin.uri:
+            url: "{{ cis_api }}/jobs/{{ cis_failed.summary_fields.job.id }}/"
+            url_username: "{{ cis_api_user }}"
+            url_password: "{{ cis_api_password }}"
+            force_basic_auth: true
+            validate_certs: "{{ cis_api_verify }}"
+          register: cis_job
+
+        - name: Read the hosts that failed
+          ansible.builtin.uri:
+            url: "{{ cis_api }}/jobs/{{ cis_failed.summary_fields.job.id }}/job_host_summaries/?failed=true&page_size=50"
+            url_username: "{{ cis_api_user }}"
+            url_password: "{{ cis_api_password }}"
+            force_basic_auth: true
+            validate_certs: "{{ cis_api_verify }}"
+          register: cis_hosts
+
+        - name: Read the failed and unreachable task results
+          ansible.builtin.uri:
+            url: "{{ cis_api }}/jobs/{{ cis_failed.summary_fields.job.id }}/job_events/?event__in=runner_on_failed,runner_on_unreachable&order_by=id&page_size=20"
+            url_username: "{{ cis_api_user }}"
+            url_password: "{{ cis_api_password }}"
+            force_basic_auth: true
+            validate_certs: "{{ cis_api_verify }}"
+          register: cis_events
+
+        - name: Summarize the failed job
+          ansible.builtin.set_fact:
+            cis_link: "{{ cis_aap_url }}/execution/jobs/playbook/{{ cis_failed.summary_fields.job.id }}/output"
+            cis_result: >-
+              Job {{ cis_job.json.status }}{{ (': ' ~ cis_job.json.job_explanation) if cis_job.json.job_explanation else '' }}
+              (limit {{ cis_job.json.limit | default('none', true) }}, elapsed {{ cis_job.json.elapsed | int }} seconds)
+            cis_failed_hosts: "{{ cis_hosts.json.results | map(attribute='host_name') | unique | join(', ') | default('none recorded', true) }}"
+            cis_errors: >-
+              {%- set lines = [] -%}
+              {%- for e in cis_events.json.results
+                    if not (e.event_data.ignore_errors | default(false)) -%}
+              {%- set res = e.event_data.res | default({}) -%}
+              {%- set msg = res.msg | default(res.stderr | default('see the job output')) -%}
+              {%- set _ = lines.append('- ' ~ e.host_name ~ ', task "' ~ e.task ~ '": ' ~ (msg | string | replace('\n', ' ') | truncate(220))) -%}
+              {%- endfor -%}
+              {{ (lines[:5] | join('\n')) if lines else 'No failed task was recorded; open the job output.' }}
+
+    - name: Read the approval
+      when:
+        - cis_failed.summary_fields is defined
+        - cis_failed.summary_fields.job.type == 'workflow_approval'
+      block:
+        - name: Read the approval record
+          ansible.builtin.uri:
+            url: "{{ cis_api }}/workflow_approvals/{{ cis_failed.summary_fields.job.id }}/"
+            url_username: "{{ cis_api_user }}"
+            url_password: "{{ cis_api_password }}"
+            force_basic_auth: true
+            validate_certs: "{{ cis_api_verify }}"
+          register: cis_approval
+
+        - name: Summarize the approval
+          ansible.builtin.set_fact:
+            cis_link: "{{ cis_aap_url }}/execution/administration/workflow-approvals/{{ cis_failed.summary_fields.job.id }}/details"
+            cis_result: >-
+              {{ 'Timed out with no decision' if cis_approval.json.timed_out
+                 else 'Denied by ' ~ (cis_approval.json.summary_fields.approved_or_denied_by.username
+                 | default('an approver')) }}
+            cis_failed_hosts: "none: no server was changed by this step"
+            cis_errors: "Not applicable: this step is an approval."
+
+    - name: Post the failure to Mattermost
+      vars:
+        cis_step: "{{ cis_steps[cis_failed.identifier] if cis_failed.identifier is defined else {} }}"
+        cis_wf_link: "{{ cis_aap_url }}/execution/jobs/workflow/{{ cis_workflow_id }}/output"
+        cis_job_link: "{{ cis_link | default(cis_wf_link) }}"
+      community.general.mattermost:
+        url: "{{ mattermost_url }}"
+        api_key: "{{ mattermost_api_key }}"
+        attachments:
+          - text: "! FAILED !"
+            color: "#c9190b"
+            title: "CIS Harden RHEL failed at: {{ cis_step.label | default('an unknown step') }}"
+            title_link: "{{ cis_job_link }}"
+            fields:
+              - title: What this means
+                value: "{{ cis_step.meaning | default('The workflow stopped. Open the workflow job to see which step failed.') }}"
+                short: false
+              - title: Result
+                value: "{{ cis_result | default('unknown') }}"
+                short: true
+              - title: Hosts that failed
+                value: "{{ cis_failed_hosts | default('unknown') }}"
+                short: true
+              - title: Failed tasks
+                value: "{{ cis_errors | default('Open the workflow job.') }}"
+                short: false
+              - title: Open in AAP
+                value: >-
+                  [{{ cis_failed.summary_fields.job.name | default('Workflow job') }}
+                  #{{ cis_failed.summary_fields.job.id | default(cis_workflow_id) }}]({{ cis_job_link }})
+                  · [Workflow job #{{ cis_workflow_id }}]({{ cis_wf_link }})
+                  · launched by {{ cis_wf.json.summary_fields.created_by.username | default('unknown') }}
+                short: false
+
+    - name: Keep the workflow job marked as failed
+      ansible.builtin.fail:
+        msg: >-
+          Reported the failure of step {{ cis_failed.identifier | default('unknown') }}
+          in workflow job {{ cis_workflow_id }} to Mattermost. This job fails on purpose
+          so that the workflow job shows as failed.
